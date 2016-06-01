@@ -1,0 +1,352 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>csapp Unix I/O</title>
+    <meta name="description" content="">
+    <meta name="author" content="Qingyu Li">
+
+    <!-- Enable responsive viewport -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le styles -->
+    <link href="/assets/themes/twitter/bootstrap/css/bootstrap.2.2.2.min.css" rel="stylesheet">
+    <link href="/assets/themes/twitter/css/style.css?body=1" rel="stylesheet" type="text/css" media="all">
+
+    <!-- Le fav and touch icons -->
+  <!-- Update these with your own images
+    <link rel="shortcut icon" href="images/favicon.ico">
+    <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="images/apple-touch-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="images/apple-touch-icon-114x114.png">
+  -->
+
+    <!-- atom & rss feed -->
+    <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="Sitewide ATOM Feed">
+    <link href="/rss.xml" type="application/rss+xml" rel="alternate" title="Sitewide RSS Feed">
+
+  </head>
+
+  <body>
+    <div class="navbar">
+      <div class="navbar-inner">
+        <div class="container-narrow">
+          <a class="brand" href="/">My Blog</a>
+          <ul class="nav">
+            
+            
+            
+
+
+  
+    
+      
+      	
+      	<li><a href="/archive">Archive</a></li>
+      	
+      
+    
+  
+    
+      
+    
+  
+    
+      
+      	
+      	<li><a href="/categories">Categories</a></li>
+      	
+      
+    
+  
+    
+      
+    
+  
+    
+      
+      	
+      	<li><a href="/pages">Pages</a></li>
+      	
+      
+    
+  
+    
+      
+    
+  
+    
+      
+      	
+      	<li><a href="/tags">Tags</a></li>
+      	
+      
+    
+  
+
+
+
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="container-narrow">
+
+      <div class="content">
+        
+
+<div class="page-header">
+  <h1>csapp Unix I/O </h1>
+</div>
+
+<div class="row-fluid post-full">
+  <div class="span12">
+    <div class="date">
+      <span>01 June 2016</span>
+    </div>
+    <div class="content">
+      
+<h3 id="io">第十章 系统级IO</h3>
+<ul>
+  <li>I/O是在主存和外部设置（磁盘驱动器、终端和网络）之间拷贝数据的过程。</li>
+  <li>输入操作是从I/O设备拷贝数据到主存。</li>
+  <li>输出操作是从主存拷贝数据到I/O设备。</li>
+  <li></li>
+</ul>
+
+<h4 id="unix-io">Unix I/O</h4>
+<ul>
+  <li>所有的I/O设备，如磁盘、网络和终端，都被模型化为文件的方式，都被当做对相应的文件读写来进行。</li>
+  <li>打开文件，若返回成功，则为新文件描述符，出错为-1。
+<code>C
+#include &lt;sys/types.h&gt;
+#include &lt;sys/stat.h&gt;
+#include &lt;fcntl.h&gt;
+int open(char *filename, int flags, mode_t mode);
+//O_RDONLY:只读;O_WRONLY:只写;O_RDWR:可读写。
+fd = open("foo.txt", O_RDONLY, 0);
+//O_CREAT:文件不存在，创建一个空文件;O_TRUNC:文件存在，则截断它;O_APPEND:在每次写之前，设置文件位置到文件的末尾处。
+fd = open("foo.txt", O_WRONLY|O_APPEND, 0);
+</code></li>
+  <li>打开文件的mode表示新文件的访问位权限，采用S_IRUSR,S_IWUSR,S_IXUSR 使用者的读、写、执行;S_IRGRP,S_IWGRP,S_IXGRP分组拥有者的读写执行；S_IROTH,S_IWOTH,S_IXOTH其他（任何人）能够读、写、执行。
+    <ul>
+      <li>文件的访问权限被置为mode &amp; ~umask
+<code>C
+umask(DEF_UMASK);
+fd = open("foo.txt", O_CREAT|O_TRUNC|O_WRONLY, DEF_MODE);
+</code></li>
+    </ul>
+  </li>
+  <li>关闭文件，关闭一个已经关闭的文件会出错.
+<code>C
+#include &lt;unistd.h&gt;
+int close(int fd);
+</code></li>
+  <li>读和写文件，调用read和write，如：
+<code>C
+#include &lt;unistd.h&gt;
+//若成功则返回为读的字节数，若EOF则为0，若出错为-1。
+ssize_t read(int fd, void *buf, size_t n);
+//若成功则返回为写的字节数，否则出错返回-1。
+ssize_t write(int fd, const void *buf, size_t n);
+</code></li>
+</ul>
+
+<h4 id="rio">RIO</h4>
+<ul>
+  <li>RIO表示健壮的读写，包括无缓冲I/O函数和带缓冲I/O函数。</li>
+</ul>
+
+<h5 id="rio-1">RIO的无缓冲输入输出函数</h5>
+<ul>
+  <li>调用rio_readn和rio_writen，可以在存储器和文件之间传输数据。
+<code>
+#include &lt;csapp.h&gt;
+//从fd的当前文件位置最多传n个字节到存储器位置usrbuf
+ssize_t rio_readn(int fd, void *usrbuf, size_t n);
+//从usrbuf传送n个字节到描述符fd。
+ssize_t rio_writen(int fd, void *usrbuf, size_t n);
+</code></li>
+</ul>
+
+<h5 id="rio-2">RIO带缓冲的输入输出函数</h5>
+<pre><code class="language-C">//读一个文本行，并且拷贝到存储器位置usrbuf
+void rio_readinitb(rio_t *rp, int fd);
+//最多读maxlen
+ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen);
+//从文件rp读n个字节到存储器位置usrbuf
+ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n);
+</code></pre>
+<pre><code class="language-C">ssize_t rio_readn(int fd, void *usrbuf, size_t n) {
+	size_t nleft = n;
+	ssize_t nread;
+	char *bufp = usrbuf;
+	while (nleft &gt; 0) {
+		if ((nread = read(fd, bufp, nleft)) &lt; 0) {
+			if (errno == EINTR) {
+				nread = 0; /* and call read() again*/
+			} else {
+				reutrn -1; /* errno set by read()*/
+			}
+		} else if (nread == 0) {
+			break;
+		}
+		nleft -= nread;
+		bufp += nread;
+	}
+	return (n - nleft);
+}
+</code></pre>
+
+<pre><code class="language-C">ssize_t rio_writen(int fd, void *usrbuf, size_t n) {
+	size_t nleft = n;
+	ssize_t nwritten;
+	char *bufp = usrbuf;
+	while (nleft &gt; 0) {
+		if ((nwritten = write(fd, bufp, nleft)) &lt; 0) {
+			if (errno == EINTR) {
+				nwritten = 0; /* and call read() again*/
+			} else {
+				reutrn -1; /* errno set by read()*/
+			}
+		}
+		nleft -= nwritten;
+		bufp += nwritten;
+	}
+	return n;
+}
+</code></pre>
+<ul>
+  <li>
+    <p>rio_read 和 Unix read 有一样的语义。在出错时，它返回值-1， 并且适当地设置errno。在EOF时，返回0。
+<code>C
+#define RIO_BUFSIZE 8192
+typedef struct {
+  int rio_fd;   /* Descriptor for this internal buf */
+  int rio_cnt;  /* Unread bytes in internal buf */
+  char *rio_bufptr; /* Next unread byte in internal buf */
+  char rio_buf[RIO_BUFSIZE]; /* Internal buffer */
+} riot;
+static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n) {
+  int cnt;
+  while (rp -&gt; rio_cnt &lt;= 0) {
+      rp -&gt; rio_cnt = read(rp -&gt; rio_fd, rp -&gt; rio_buf, sizeof(rp -&gt; rio_buf));
+      if (rp -&gt; rio_cnt &lt; 0) {
+          if (errno != EINTR) {
+              return -1;
+          }
+      } else if (rp -&gt; rio_cnt == 0) {
+          return 0;
+      } else {
+          rp -&gt; rio_bufptr = rp -&gt; rio_buf;
+      }
+  }
+  cnt = n;
+  if (rp -&gt; rio_cnt &lt; 0) {
+      cnt = rp -&gt; rio_cnt;
+  }
+  memcpy (usrbuf, rp -&gt; rio_bufptr, cnt);
+  rp -&gt; rio_bufptr += cnt;
+  rp -&gt; rio_cnt -= cnt;
+  return cnt;
+}
+</code>
+```C
+ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n) {
+  size_t nleft = n;
+  ssize_t nread;
+  char *bufp = usrbuf;
+  while (nleft &gt; 0) {
+      if ((nread = rio_read(rp, bufp, nleft)) &lt; 0) {</p>
+
+    <pre><code>      if (errno == EINTR) {
+          return 0;  /*Call read() again*/
+      } else {
+          return -1; /* errno set by read() */
+      }
+  } else if (nread == 0) {
+      break; /* EOF */
+  }
+  nleft -= nread;
+  bufp += nread;   }   return (n - nleft); } ``` ```C ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen) {   int n, rc;   char c, *bufp = usrbuf;   for (n = 1; n &lt; maxlen; ++n) {
+  if ((rc = rio_read(rp, &amp;c, 1)) == 1) {
+      *bufp++ = c;
+      if (c == '\n')
+          break;
+  } else if (rc == 0) {
+      if (n == 1) {
+          return 0; /* EOF, no data read */
+      } else {
+          break; /* EOF, some data read */
+      }
+  } else {
+      return -1;
+  }   }   *bufp = 0; /*设置行结尾ASCII = '\0'*/   return n; } ```
+</code></pre>
+  </li>
+</ul>
+
+<h5 id="section">共享文件</h5>
+<ul>
+  <li>数据结构
+    <ul>
+      <li>描述符表(descriptor table)：每个进程一张表，表项是进程打开的文件索引</li>
+      <li>文件表（file table):所有进程共享，包括当前文件的位置，引用计数，以及指向v-node表的指针。</li>
+      <li>文件表（v-node table):所有进程共享，st_mode和st_size，st_type成员。</li>
+    </ul>
+  </li>
+  <li>多个描述符可通过不同的文件表表项来引用同一个文件。
+<img src="https://cloud.githubusercontent.com/assets/7262998/15697872/05f0eea6-27f1-11e6-885b-9a0500356e27.png" alt="image" /></li>
+</ul>
+
+
+    </div>
+
+    
+
+    
+
+    <hr>
+    <div class="pagination">
+      <ul>
+      
+        <li class="prev"><a href="/lessons/2011/12/29/jekyll-introduction" title="Jekyll Introduction">&larr; Previous</a></li>
+      
+        <li><a href="/archive.html">Archive</a></li>
+      
+        <li class="next disabled"><a>Next &rarr;</a>
+      
+      </ul>
+    </div>
+    <hr>
+    
+  </div>
+</div>
+
+
+      </div>
+      <hr>
+      <footer>
+        <p>&copy; 2016 Qingyu Li
+          with help from <a href="http://jekyllbootstrap.com" target="_blank" title="The Definitive Jekyll Blogging Framework">Jekyll Bootstrap</a>
+          and <a href="http://getbootstrap.com" target="_blank">Bootstrap</a>
+        </p>
+      </footer>
+
+    </div>
+
+    
+
+
+
+  </body>
+</html>
+
